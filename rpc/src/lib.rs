@@ -67,9 +67,9 @@ pub struct FullDeps<C, P, SC> {
 	/// Whether to deny unsafe calls
 	pub deny_unsafe: DenyUnsafe,
 	/// BABE specific dependencies.
-	pub babe: BabeDeps,
+	pub babe: Option<BabeDeps>,
 	/// GRANDPA specific dependencies.
-	pub grandpa: GrandpaDeps,
+	pub grandpa: Option<GrandpaDeps>,
 }
 
 /// Instantiate all Full RPC extensions.
@@ -105,17 +105,39 @@ where
 		babe,
 		grandpa,
 	} = deps;
-	let BabeDeps {
-		keystore,
-		babe_config,
-		shared_epoch_changes,
-	} = babe;
-	let GrandpaDeps {
-		shared_voter_state,
-		shared_authority_set,
-		justification_stream,
-		subscriptions,
-	} = grandpa;
+
+	if let Some(babe) = babe {
+		let BabeDeps {
+			keystore,
+			babe_config,
+			shared_epoch_changes,
+		} = babe;
+
+		io.extend_with(sc_consensus_babe_rpc::BabeApi::to_delegate(BabeRpcHandler::new(
+			client.clone(),
+			shared_epoch_changes,
+			keystore,
+			babe_config,
+			select_chain,
+			deny_unsafe,
+		)));
+	}
+
+	if let Some(grandpa) = grandpa {
+		let GrandpaDeps {
+			shared_voter_state,
+			shared_authority_set,
+			justification_stream,
+			subscriptions,
+		} = grandpa;
+
+		io.extend_with(GrandpaApi::to_delegate(GrandpaRpcHandler::new(
+			shared_authority_set,
+			shared_voter_state,
+			justification_stream,
+			subscriptions,
+		)));
+	}
 
 	io.extend_with(SystemApi::to_delegate(FullSystem::new(
 		client.clone(),
@@ -124,18 +146,6 @@ where
 	)));
 	io.extend_with(TransactionPaymentApi::to_delegate(TransactionPayment::new(
 		client.clone(),
-	)));
-	// Making synchronous calls in light client freezes the browser currently,
-	// more context: https://github.com/paritytech/substrate/pull/3480
-	// These RPCs should use an asynchronous caller instead.
-	io.extend_with(ContractsApi::to_delegate(Contracts::new(client.clone())));
-	io.extend_with(sc_consensus_babe_rpc::BabeApi::to_delegate(BabeRpcHandler::new(
-		client.clone(),
-		shared_epoch_changes,
-		keystore,
-		babe_config,
-		select_chain,
-		deny_unsafe,
 	)));
 	io.extend_with(GrandpaApi::to_delegate(GrandpaRpcHandler::new(
 		shared_authority_set,

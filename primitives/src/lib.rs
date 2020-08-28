@@ -6,6 +6,7 @@ use sp_runtime::{
 	traits::{BlakeTwo256, IdentifyAccount, Verify},
 	MultiSignature, RuntimeDebug,
 };
+use sp_std::{convert::TryFrom, prelude::*, vec};
 
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
@@ -73,6 +74,37 @@ pub enum CurrencyId {
 	XBTC = 3,
 	LDOT = 4,
 	RENBTC = 5,
+}
+
+impl Into<Vec<u8>> for CurrencyId {
+	fn into(self) -> Vec<u8> {
+		use CurrencyId::*;
+		match self {
+			ACA => b"ACA".to_vec(),
+			AUSD => b"AUSD".to_vec(),
+			DOT => b"DOT".to_vec(),
+			XBTC => b"XBTC".to_vec(),
+			LDOT => b"LDOT".to_vec(),
+			RENBTC => b"RENBTC".to_vec(),
+		}
+	}
+}
+
+impl TryFrom<Vec<u8>> for CurrencyId {
+	type Error = ();
+
+	fn try_from(v: Vec<u8>) -> Result<CurrencyId, ()> {
+		use CurrencyId::*;
+		match v.as_slice() {
+			b"ACA" => Ok(ACA),
+			b"AUSD" => Ok(AUSD),
+			b"DOT" => Ok(DOT),
+			b"XBTC" => Ok(XBTC),
+			b"LDOT" => Ok(LDOT),
+			b"RENBTC" => Ok(RENBTC),
+			_ => Err(()),
+		}
+	}
 }
 
 #[derive(Encode, Decode, Eq, PartialEq, Copy, Clone, RuntimeDebug, PartialOrd, Ord)]

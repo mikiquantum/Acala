@@ -47,6 +47,20 @@ acala-rpc = { path = "../rpc" }
 dev-runtime = { path = "../runtime/dev" }
 runtime-common = { path = "../runtime/common" }
 
+ansi_term = "0.12.1"
+sc-informant = { version = "0.8.0-rc6" }
+sp-timestamp = { version = "2.0.0-rc6" }
+
+
+# Cumulus Dependencies
+cumulus-primitives = { git = "https://github.com/paritytech/cumulus" }
+cumulus-network = { git = "https://github.com/paritytech/cumulus" }
+cumulus-service = { git = "https://github.com/paritytech/cumulus" }
+cumulus-consensus = { git = "https://github.com/paritytech/cumulus" }
+prometheus-endpoint = { package = "substrate-prometheus-endpoint", git = "https://github.com/paritytech/substrate", branch = "rococo-branch" }
+polkadot-primitives = { git = "https://github.com/paritytech/polkadot", branch = "rococo-branch" }
+polkadot-collator = { git = "https://github.com/paritytech/polkadot", branch = "rococo-branch" }
+
 [dev-dependencies]
 sc-consensus-babe = { version = "0.8.0-rc6", features = ["test-helpers"] }
 

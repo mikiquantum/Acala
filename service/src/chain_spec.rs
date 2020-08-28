@@ -1,6 +1,7 @@
 //! Acala chain configurations.
 
 use acala_primitives::{AccountId, AccountPublic};
+use cumulus_primitives::ParaId;
 use hex_literal::hex;
 use runtime_common::OracleId;
 use sc_chain_spec::{ChainSpecExtension, ChainType};
@@ -26,6 +27,17 @@ pub struct Extensions {
 	pub fork_blocks: sc_client_api::ForkBlocks<acala_primitives::Block>,
 	/// Known bad block hashes.
 	pub bad_blocks: sc_client_api::BadBlocks<acala_primitives::Block>,
+	/// The relay chain of the Parachain.
+	pub relay_chain: Option<String>,
+	/// The id of the Parachain.
+	pub para_id: Option<u32>,
+}
+
+impl Extensions {
+	/// Try to get the extension from the given `ChainSpec`.
+	pub fn try_get(chain_spec: &Box<dyn sc_service::ChainSpec>) -> Option<&Self> {
+		sc_chain_spec::get_extension(chain_spec.extensions())
+	}
 }
 
 /// The `ChainSpec parametrised for dev/mandala runtime`.
@@ -68,7 +80,7 @@ pub fn get_oracle_keys_from_seed(seed: &str) -> (AccountId, OracleId) {
 }
 
 /// Development testnet config (single validator Alice)
-pub fn development_testnet_config() -> Result<DevChainSpec, String> {
+pub fn development_testnet_config(para_id: Option<ParaId>) -> Result<DevChainSpec, String> {
 	let mut properties = Map::new();
 	properties.insert("tokenSymbol".into(), "ACA".into());
 	properties.insert("tokenDecimals".into(), 18.into());
@@ -95,18 +107,23 @@ pub fn development_testnet_config() -> Result<DevChainSpec, String> {
 				],
 				vec![get_oracle_keys_from_seed("Alice")],
 				true,
+				para_id,
 			)
 		},
 		vec![],
 		None,
 		None,
 		Some(properties),
-		Default::default(),
+		Extensions {
+			relay_chain: para_id.map(|_| "rococo".into()),
+			para_id: para_id.map(Into::into),
+			..Default::default()
+		},
 	))
 }
 
 /// Local testnet config (multivalidator Alice + Bob)
-pub fn local_testnet_config() -> Result<DevChainSpec, String> {
+pub fn local_testnet_config(para_id: Option<ParaId>) -> Result<DevChainSpec, String> {
 	let mut properties = Map::new();
 	properties.insert("tokenSymbol".into(), "ACA".into());
 	properties.insert("tokenDecimals".into(), 18.into());
@@ -141,6 +158,7 @@ pub fn local_testnet_config() -> Result<DevChainSpec, String> {
 				],
 				vec![get_oracle_keys_from_seed("Alice")],
 				false,
+				para_id,
 			)
 		},
 		vec![],
@@ -152,7 +170,7 @@ pub fn local_testnet_config() -> Result<DevChainSpec, String> {
 }
 
 /// Latest Mandala testnet config
-pub fn latest_mandala_testnet_config() -> Result<DevChainSpec, String> {
+pub fn latest_mandala_testnet_config(para_id: Option<ParaId>) -> Result<DevChainSpec, String> {
 	let mut properties = Map::new();
 	properties.insert("tokenSymbol".into(), "ACA".into());
 	properties.insert("tokenDecimals".into(), 18.into());
@@ -215,6 +233,7 @@ pub fn latest_mandala_testnet_config() -> Result<DevChainSpec, String> {
 					hex!["9e22b64c980329ada2b46a783623bcf1f1d0418f6a2b5fbfb7fb68dbac5abf0f"].unchecked_into(),
 				)],
 				false,
+				para_id,
 			)
 		},
 		vec![
@@ -225,7 +244,11 @@ pub fn latest_mandala_testnet_config() -> Result<DevChainSpec, String> {
 		TelemetryEndpoints::new(vec![(TELEMETRY_URL.into(), 0)]).ok(),
 		Some("mandala4"),
 		Some(properties),
-		Default::default(),
+		Extensions {
+			relay_chain: para_id.map(|_| "rococo".into()),
+			para_id: para_id.map(Into::into),
+			..Default::default()
+		},
 	))
 }
 
@@ -241,14 +264,15 @@ fn testnet_genesis(
 	endowed_accounts: Vec<AccountId>,
 	oracle_session_keys: Vec<(AccountId, OracleId)>,
 	enable_println: bool,
+	para_id: Option<ParaId>,
 ) -> dev_runtime::GenesisConfig {
 	use dev_runtime::{
 		get_all_module_accounts, AcalaOracleConfig, AirDropConfig, BabeConfig, BalancesConfig, BandOracleConfig,
 		CdpEngineConfig, CdpTreasuryConfig, ContractsConfig, CurrencyId, DexConfig, GeneralCouncilMembershipConfig,
 		GrandpaConfig, HomaCouncilMembershipConfig, HonzonCouncilMembershipConfig, IndicesConfig, NewAccountDeposit,
-		OperatorMembershipAcalaConfig, OperatorMembershipBandConfig, PolkadotBridgeConfig, SessionConfig, StakerStatus,
-		StakingConfig, SudoConfig, SystemConfig, TechnicalCommitteeMembershipConfig, TokensConfig, VestingConfig,
-		DOLLARS,
+		OperatorMembershipAcalaConfig, OperatorMembershipBandConfig, ParachainInfoConfig, PolkadotBridgeConfig,
+		SessionConfig, StakerStatus, StakingConfig, SudoConfig, SystemConfig, TechnicalCommitteeMembershipConfig,
+		TokensConfig, VestingConfig, DOLLARS,
 	};
 
 	let new_account_deposit = NewAccountDeposit::get();
@@ -408,6 +432,9 @@ fn testnet_genesis(
 			members: Default::default(), // initialized by OperatorMembership
 			session_keys: oracle_session_keys,
 		}),
+		parachain_info: Some(ParachainInfoConfig {
+			parachain_id: para_id.unwrap_or(5000.into()),
+		}),
 	}
 }
 
@@ -418,14 +445,15 @@ fn mandala_genesis(
 	endowed_accounts: Vec<AccountId>,
 	oracle_session_keys: Vec<(AccountId, OracleId)>,
 	enable_println: bool,
+	para_id: Option<ParaId>,
 ) -> dev_runtime::GenesisConfig {
 	use dev_runtime::{
 		get_all_module_accounts, AcalaOracleConfig, AirDropConfig, AirDropCurrencyId, BabeConfig, Balance,
 		BalancesConfig, BandOracleConfig, CdpEngineConfig, CdpTreasuryConfig, ContractsConfig, CurrencyId, DexConfig,
 		GeneralCouncilMembershipConfig, GrandpaConfig, HomaCouncilMembershipConfig, HonzonCouncilMembershipConfig,
 		IndicesConfig, NewAccountDeposit, OperatorMembershipAcalaConfig, OperatorMembershipBandConfig,
-		PolkadotBridgeConfig, SessionConfig, StakerStatus, StakingConfig, SudoConfig, SystemConfig,
-		TechnicalCommitteeMembershipConfig, TokensConfig, VestingConfig, CENTS, DOLLARS,
+		ParachainInfoConfig, PolkadotBridgeConfig, SessionConfig, StakerStatus, StakingConfig, SudoConfig,
+		SystemConfig, TechnicalCommitteeMembershipConfig, TokensConfig, VestingConfig, CENTS, DOLLARS,
 	};
 
 	let new_account_deposit = NewAccountDeposit::get();
@@ -596,6 +624,9 @@ fn mandala_genesis(
 		orml_oracle_Instance2: Some(BandOracleConfig {
 			members: Default::default(), // initialized by OperatorMembership
 			session_keys: oracle_session_keys,
+		}),
+		parachain_info: Some(ParachainInfoConfig {
+			parachain_id: para_id.unwrap_or(5000.into()),
 		}),
 	}
 }

@@ -9,10 +9,20 @@ use acala_primitives::Block;
 use sc_client_api::{ExecutorProvider, RemoteBackend};
 use sc_executor::native_executor_instance;
 use sc_finality_grandpa::FinalityProofProvider as GrandpaFinalityProofProvider;
-use sc_service::{config::Configuration, error::Error as ServiceError, PartialComponents, RpcHandlers, TaskManager};
+use sc_service::{
+	config::{Configuration, PrometheusConfig},
+	error::Error as ServiceError,
+	PartialComponents, RpcHandlers, TaskManager,
+};
 use sp_core::traits::BareCryptoStorePtr;
 use sp_inherents::InherentDataProviders;
 use sp_runtime::traits::{BlakeTwo256, Block as BlockT};
+
+use ansi_term::Color;
+use cumulus_network::DelayedBlockAnnounceValidator;
+use cumulus_service::{prepare_node_config, start_collator, start_full_node, StartCollatorParams, StartFullNodeParams};
+use polkadot_primitives::v0::CollatorPair;
+use sc_informant::OutputFormat;
 
 pub use client::*;
 pub use dev_runtime;
@@ -55,6 +65,14 @@ impl IdentifyVariant for Box<dyn ChainSpec> {
 	fn is_mandala(&self) -> bool {
 		self.id().starts_with("mandala") || self.id().starts_with("man")
 	}
+}
+
+fn set_prometheus_registry(config: &mut Configuration) -> Result<(), ServiceError> {
+	if let Some(PrometheusConfig { registry, .. }) = config.prometheus_config.as_mut() {
+		*registry = prometheus_endpoint::Registry::new_custom(Some("Acala".into()), None)?;
+	}
+
+	Ok(())
 }
 
 /// Acala's full backend.
@@ -165,17 +183,17 @@ where
 				pool: transaction_pool.clone(),
 				select_chain: select_chain.clone(),
 				deny_unsafe,
-				babe: acala_rpc::BabeDeps {
+				babe: Some(acala_rpc::BabeDeps {
 					babe_config: babe_config.clone(),
 					shared_epoch_changes: shared_epoch_changes.clone(),
 					keystore: keystore.clone(),
-				},
-				grandpa: acala_rpc::GrandpaDeps {
+				}),
+				grandpa: Some(acala_rpc::GrandpaDeps {
 					shared_voter_state: shared_voter_state.clone(),
 					shared_authority_set: shared_authority_set.clone(),
 					justification_stream: justification_stream.clone(),
 					subscriptions,
-				},
+				}),
 			};
 
 			acala_rpc::create_full::<_, _, _>(deps)
@@ -549,4 +567,215 @@ where
 		..
 	} = new_partial::<Runtime, Executor>(&mut config)?;
 	Ok((client, backend, import_queue, task_manager))
+}
+
+pub fn new_collator_partial<RuntimeApi, Executor>(
+	config: &mut Configuration,
+) -> Result<
+	PartialComponents<
+		FullClient<RuntimeApi, Executor>,
+		FullBackend,
+		(),
+		sp_consensus::DefaultImportQueue<Block, FullClient<RuntimeApi, Executor>>,
+		sc_transaction_pool::FullPool<Block, FullClient<RuntimeApi, Executor>>,
+		impl Fn(acala_rpc::DenyUnsafe) -> acala_rpc::RpcExtension,
+	>,
+	sc_service::Error,
+>
+where
+	RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi, Executor>> + Send + Sync + 'static,
+	RuntimeApi::RuntimeApi: RuntimeApiCollection<StateBackend = sc_client_api::StateBackendFor<FullBackend, Block>>,
+	Executor: NativeExecutionDispatch + 'static,
+{
+	set_prometheus_registry(config)?;
+
+	let (client, backend, keystore, task_manager) = sc_service::new_full_parts::<Block, RuntimeApi, Executor>(&config)?;
+	let client = Arc::new(client);
+
+	let transaction_pool = sc_transaction_pool::BasicPool::new_full(
+		config.transaction_pool.clone(),
+		config.prometheus_registry(),
+		task_manager.spawn_handle(),
+		client.clone(),
+	);
+
+	let inherent_data_providers = sp_inherents::InherentDataProviders::new();
+
+	let registry = config.prometheus_registry();
+
+	let import_queue = sc_consensus_babe::import_queue(
+		client.clone(),
+		client.clone(),
+		inherent_data_providers.clone(),
+		&task_manager.spawn_handle(),
+		registry.clone(),
+	)?;
+
+	let rpc_extensions_builder = {
+		let client = client.clone();
+		let transaction_pool = transaction_pool.clone();
+		let select_chain = sc_consensus::LongestChain::new(backend.clone());
+
+		move |deny_unsafe, subscriptions| -> acala_rpc::RpcExtension {
+			let deps = acala_rpc::FullDeps {
+				client: client.clone(),
+				pool: transaction_pool.clone(),
+				select_chain: select_chain.clone(),
+				deny_unsafe,
+				babe: None,
+				grandpa: None,
+			};
+
+			acala_rpc::create_full::<_, _, _>(deps)
+		}
+	};
+
+	Ok(PartialComponents {
+		client,
+		backend,
+		task_manager,
+		keystore,
+		select_chain: (),
+		import_queue,
+		transaction_pool,
+		inherent_data_providers,
+		other: rpc_extensions_builder,
+	})
+}
+
+fn new_collator_impl<RuntimeApi, Executor>(
+	parachain_config: Configuration,
+	collator_key: Arc<CollatorPair>,
+	mut polkadot_config: polkadot_collator::Configuration,
+	id: polkadot_primitives::v0::Id,
+	validator: bool,
+) -> sc_service::error::Result<(TaskManager, Arc<FullClient<RuntimeApi, Executor>>)>
+where
+	RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi, Executor>> + Send + Sync + 'static,
+	RuntimeApi::RuntimeApi: RuntimeApiCollection<StateBackend = sc_client_api::StateBackendFor<FullBackend, Block>>,
+	sc_client_api::StateBackendFor<FullBackend, Block>: sp_api::StateBackend<BlakeTwo256>,
+	Executor: NativeExecutionDispatch + 'static,
+{
+	let mut parachain_config = prepare_node_config(parachain_config);
+
+	parachain_config.informant_output_format = OutputFormat {
+		enable_color: true,
+		prefix: format!("[{}] ", Color::Yellow.bold().paint("Parachain")),
+	};
+	polkadot_config.informant_output_format = OutputFormat {
+		enable_color: true,
+		prefix: format!("[{}] ", Color::Blue.bold().paint("Relaychain")),
+	};
+
+	let params = new_collator_partial::<RuntimeApi, Executor>(&mut parachain_config)?;
+	params
+		.inherent_data_providers
+		.register_provider(sp_timestamp::InherentDataProvider)
+		.unwrap();
+
+	let client = params.client.clone();
+	let backend = params.backend.clone();
+	let block_announce_validator = DelayedBlockAnnounceValidator::new();
+	let block_announce_validator_builder = {
+		let block_announce_validator = block_announce_validator.clone();
+		move |_| Box::new(block_announce_validator) as Box<_>
+	};
+
+	let prometheus_registry = parachain_config.prometheus_registry().cloned();
+	let transaction_pool = params.transaction_pool.clone();
+	let mut task_manager = params.task_manager;
+	let import_queue = params.import_queue;
+	let (network, network_status_sinks, system_rpc_tx, start_network) =
+		sc_service::build_network(sc_service::BuildNetworkParams {
+			config: &parachain_config,
+			client: client.clone(),
+			transaction_pool: transaction_pool.clone(),
+			spawn_handle: task_manager.spawn_handle(),
+			import_queue,
+			on_demand: None,
+			block_announce_validator_builder: Some(Box::new(block_announce_validator_builder)),
+			finality_proof_request_builder: None,
+			finality_proof_provider: None,
+		})?;
+
+	if parachain_config.offchain_worker.enabled {
+		sc_service::build_offchain_workers(
+			&parachain_config,
+			backend.clone(),
+			task_manager.spawn_handle(),
+			client.clone(),
+			network.clone(),
+		);
+	}
+
+	sc_service::spawn_tasks(sc_service::SpawnTasksParams {
+		on_demand: None,
+		remote_blockchain: None,
+		rpc_extensions_builder: Box::new(params.other),
+		client: client.clone(),
+		transaction_pool: transaction_pool.clone(),
+		task_manager: &mut task_manager,
+		telemetry_connection_sinks: Default::default(),
+		config: parachain_config,
+		keystore: params.keystore,
+		backend,
+		network: network.clone(),
+		network_status_sinks,
+		system_rpc_tx,
+	})?;
+
+	let announce_block = Arc::new(move |hash, data| network.announce_block(hash, data));
+
+	if validator {
+		let proposer_factory =
+			sc_basic_authorship::ProposerFactory::new(client.clone(), transaction_pool, prometheus_registry.as_ref());
+
+		let params = StartCollatorParams {
+			para_id: id,
+			block_import: client.clone(),
+			proposer_factory,
+			inherent_data_providers: params.inherent_data_providers,
+			block_status: client.clone(),
+			announce_block,
+			client: client.clone(),
+			block_announce_validator,
+			task_manager: &mut task_manager,
+			polkadot_config,
+			collator_key,
+		};
+
+		start_collator(params)?;
+	} else {
+		let params = StartFullNodeParams {
+			client: client.clone(),
+			announce_block,
+			polkadot_config,
+			collator_key,
+			block_announce_validator,
+			task_manager: &mut task_manager,
+			para_id: id,
+		};
+
+		start_full_node(params)?;
+	}
+
+	start_network.start_network();
+
+	Ok((task_manager, client))
+}
+
+pub fn new_collator(
+	parachain_config: Configuration,
+	collator_key: Arc<CollatorPair>,
+	polkadot_config: polkadot_collator::Configuration,
+	id: polkadot_primitives::v0::Id,
+	validator: bool,
+) -> sc_service::error::Result<(TaskManager, Arc<FullClient<dev_runtime::RuntimeApi, DevExecutor>>)> {
+	new_collator_impl::<dev_runtime::RuntimeApi, DevExecutor>(
+		parachain_config,
+		collator_key,
+		polkadot_config,
+		id,
+		validator,
+	)
 }
