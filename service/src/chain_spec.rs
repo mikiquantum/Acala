@@ -3,7 +3,6 @@
 use acala_primitives::{AccountId, AccountPublic};
 use cumulus_primitives::ParaId;
 use hex_literal::hex;
-use runtime_common::OracleId;
 use sc_chain_spec::{ChainSpecExtension, ChainType};
 use sc_telemetry::TelemetryEndpoints;
 use serde::{Deserialize, Serialize};
@@ -72,13 +71,6 @@ pub fn get_authority_keys_from_seed(seed: &str) -> (AccountId, AccountId, Grandp
 	)
 }
 
-pub fn get_oracle_keys_from_seed(seed: &str) -> (AccountId, OracleId) {
-	(
-		get_account_id_from_seed::<sr25519::Public>(seed),
-		get_from_seed::<OracleId>(seed),
-	)
-}
-
 /// Development testnet config (single validator Alice)
 pub fn development_testnet_config(para_id: Option<ParaId>) -> Result<DevChainSpec, String> {
 	let mut properties = Map::new();
@@ -105,7 +97,6 @@ pub fn development_testnet_config(para_id: Option<ParaId>) -> Result<DevChainSpe
 					get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
 					get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
 				],
-				vec![get_oracle_keys_from_seed("Alice")],
 				true,
 				para_id,
 			)
@@ -156,7 +147,6 @@ pub fn local_testnet_config(para_id: Option<ParaId>) -> Result<DevChainSpec, Str
 					get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
 					get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
 				],
-				vec![get_oracle_keys_from_seed("Alice")],
 				false,
 				para_id,
 			)
@@ -227,11 +217,6 @@ pub fn latest_mandala_testnet_config(para_id: Option<ParaId>) -> Result<DevChain
 					// 5Fe3jZRbKes6aeuQ6HkcTvQeNhkkRPTXBwmNkuAPoimGEv45
 					hex!["9e22b64c980329ada2b46a783623bcf1f1d0418f6a2b5fbfb7fb68dbac5abf0f"].into(),
 				],
-				vec![(
-					// 5Fe3jZRbKes6aeuQ6HkcTvQeNhkkRPTXBwmNkuAPoimGEv45
-					hex!["9e22b64c980329ada2b46a783623bcf1f1d0418f6a2b5fbfb7fb68dbac5abf0f"].into(),
-					hex!["9e22b64c980329ada2b46a783623bcf1f1d0418f6a2b5fbfb7fb68dbac5abf0f"].unchecked_into(),
-				)],
 				false,
 				para_id,
 			)
@@ -262,7 +247,6 @@ fn testnet_genesis(
 	initial_authorities: Vec<(AccountId, AccountId, GrandpaId, BabeId)>,
 	root_key: AccountId,
 	endowed_accounts: Vec<AccountId>,
-	oracle_session_keys: Vec<(AccountId, OracleId)>,
 	enable_println: bool,
 	para_id: Option<ParaId>,
 ) -> dev_runtime::GenesisConfig {
@@ -426,11 +410,11 @@ fn testnet_genesis(
 		}),
 		orml_oracle_Instance1: Some(AcalaOracleConfig {
 			members: Default::default(), // initialized by OperatorMembership
-			session_keys: oracle_session_keys.clone(),
+			phantom: Default::default(),
 		}),
 		orml_oracle_Instance2: Some(BandOracleConfig {
 			members: Default::default(), // initialized by OperatorMembership
-			session_keys: oracle_session_keys,
+			phantom: Default::default(),
 		}),
 		parachain_info: Some(ParachainInfoConfig {
 			parachain_id: para_id.unwrap_or(5000.into()),
@@ -443,7 +427,6 @@ fn mandala_genesis(
 	initial_authorities: Vec<(AccountId, AccountId, GrandpaId, BabeId)>,
 	root_key: AccountId,
 	endowed_accounts: Vec<AccountId>,
-	oracle_session_keys: Vec<(AccountId, OracleId)>,
 	enable_println: bool,
 	para_id: Option<ParaId>,
 ) -> dev_runtime::GenesisConfig {
@@ -619,11 +602,11 @@ fn mandala_genesis(
 		}),
 		orml_oracle_Instance1: Some(AcalaOracleConfig {
 			members: Default::default(), // initialized by OperatorMembership
-			session_keys: oracle_session_keys.clone(),
+			phantom: Default::default(),
 		}),
 		orml_oracle_Instance2: Some(BandOracleConfig {
 			members: Default::default(), // initialized by OperatorMembership
-			session_keys: oracle_session_keys,
+			phantom: Default::default(),
 		}),
 		parachain_info: Some(ParachainInfoConfig {
 			parachain_id: para_id.unwrap_or(5000.into()),
