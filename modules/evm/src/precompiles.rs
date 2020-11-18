@@ -110,6 +110,12 @@ impl Precompile for ECRecover {
 		let mut address = sp_io::hashing::keccak_256(&pubkey);
 		address[0..12].copy_from_slice(&[0u8; 12]);
 
+		frame_support::debug::debug!(
+			target: "evm",
+			"ECRecover: msg: {:?} address: {:?} sig: {:?}",
+			msg, address, sig
+		);
+
 		Ok((ExitSucceed::Returned, address.to_vec(), cost))
 	}
 }
