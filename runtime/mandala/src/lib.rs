@@ -1391,6 +1391,9 @@ parameter_types! {
 		// Hydrate
 		t.insert(("HDT".into(), (Junction::Parent, Junction::Parachain { id: 82406 }).into()));
 
+		// Centrifuge
+		t.insert(("RAD".into(), (Junction::Parent, Junction::Parachain { id: 10001 }).into()));
+
 		t
 	};
 }

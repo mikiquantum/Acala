@@ -86,6 +86,7 @@ create_currency_id! {
 		PLM = 7,
 		PHA = 8,
 		HDT = 9,
+		RAD = 10,
 
 		// Kusama Ecosystem
 		KAR = 128,
@@ -98,6 +99,7 @@ create_currency_id! {
 		SDN = 135,
 		// Reserve for PHA = 136
 		// Reserve for HDT = 137,
+		// Reserve for RAD = 138,
 	}
 }
 
